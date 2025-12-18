@@ -196,29 +196,24 @@ class SlackService:
             The thread timestamp (ts) of the weekly thread
         """
         date_str = week_commencing_date.strftime("%Y-%m-%d")
-        search_query = f'Firefighter weekly summary {date_str}'
+        expected_text = f"Firefighter weekly summary {date_str}"
         
-        # Search for existing weekly thread
+        # Search for existing weekly thread in the specific channel
         try:
-            result = self.user_client.search_messages(
-                query=search_query,
-                count=10,
-                sort="timestamp",
+            # Search recent messages in the channel (last 200 messages should cover at least a week)
+            result = self.user_client.conversations_history(
+                channel=channel_id,
+                limit=200,
             )
-            messages_data = result.get("messages", {})
-            matches = messages_data.get("matches", [])
+            messages = result.get("messages", [])
             
-            # Look for a message with the exact pattern in the correct channel
-            for match in matches:
-                text = match.get("text", "")
-                if f"Firefighter weekly summary {date_str}" in text:
-                    # Verify it's in the correct channel
-                    channel_info = match.get("channel", {})
-                    match_channel_id = channel_info.get("id") if isinstance(channel_info, dict) else match.get("channel")
-                    if match_channel_id == channel_id:
-                        ts = match.get("ts")
-                        if isinstance(ts, str):
-                            return ts
+            # Look for a message with the exact pattern
+            for message in messages:
+                text = message.get("text", "")
+                if expected_text in text:
+                    ts = message.get("ts")
+                    if isinstance(ts, str):
+                        return ts
         except SlackApiError:
             # If search fails, we'll create a new thread
             pass
