@@ -29,7 +29,7 @@ def build_thread_text(
     return "\nReply:\n".join(lines), sorted(participants)
 
 
-def run_pipeline(settings: Settings, dry_run: bool | None = None) -> None:
+def run_pipeline(settings: Settings, dry_run: bool | None = None, permalink: str | None = None) -> None:
     cache = Cache(settings.redis_url)
     slack = SlackService(
         bot_token=settings.slack_bot_token,
@@ -43,51 +43,69 @@ def run_pipeline(settings: Settings, dry_run: bool | None = None) -> None:
     )
     effective_dry_run = settings.dry_run if dry_run is None else dry_run
 
-    cutoff = datetime.now(tz=timezone.utc) - timedelta(days=settings.lookback_days)
-    matches = slack.search_messages(settings.search_query, settings.search_limit)
-
-    if  False and effective_dry_run:
-        permalinks: List[str] = []
-        for match in matches:
-            permalink = match.get("permalink")
-            if isinstance(permalink, str) and permalink:
-                permalinks.append(permalink)
-                continue
-            channel_info = match.get("channel", {})
-            channel_id = channel_info.get("id") or match.get("channel") or match.get("channel_id")
-            ts = match.get("thread_ts") or match.get("ts")
-            if isinstance(channel_id, str) and isinstance(ts, str):
-                resolved_permalink = slack.get_permalink(channel_id, ts)
-                if resolved_permalink:
-                    permalinks.append(resolved_permalink)
-        print(json.dumps(permalinks, indent=2))
-        cache.close()
-        return
-
     threads: List[Dict[str, Any]] = []
-    for item in matches:
-        ts = item.get("thread_ts") or item.get("ts")
-        if not ts:
-            continue
-        dt = SlackService.ts_to_datetime(str(ts))
-        if dt < cutoff:
-            continue
-        channel_info = item.get("channel", {})
-        channel_id = channel_info.get("id") or item.get("channel") or item.get("channel_id")
-        if not isinstance(channel_id, str):
-            continue
-        thread_messages = slack.fetch_thread(channel_id, str(ts))
-        if not thread_messages or len(thread_messages) < 2:
-            continue
-        logger.info("Thread messages for %s, count: %d", slack.get_permalink(channel_id, ts), len(thread_messages))
-        threads.append(
-            {
-                "channel_id": channel_id,
-                "thread_ts": str(ts),
-                "messages": thread_messages,
-                "dt": dt,
-            }
-        )
+
+    if permalink:
+        parsed = SlackService.parse_permalink(permalink)
+        if not parsed:
+            raise ValueError(f"Invalid permalink format: {permalink}")
+        channel_id, message_ts = parsed
+        thread_messages = slack.fetch_thread(channel_id, message_ts)
+        if not thread_messages:
+            raise ValueError(f"No messages found for permalink: {permalink}")
+        dt = SlackService.ts_to_datetime(message_ts)
+        logger.info("Single thread mode: %s, count: %d", permalink, len(thread_messages))
+        threads.append({
+            "channel_id": channel_id,
+            "thread_ts": message_ts,
+            "messages": thread_messages,
+            "dt": dt,
+        })
+    else:
+        cutoff = datetime.now(tz=timezone.utc) - timedelta(days=settings.lookback_days)
+        matches = slack.search_messages(settings.search_query, settings.search_limit)
+
+        if False and effective_dry_run:
+            permalinks: List[str] = []
+            for match in matches:
+                plink = match.get("permalink")
+                if isinstance(plink, str) and plink:
+                    permalinks.append(plink)
+                    continue
+                channel_info = match.get("channel", {})
+                ch_id = channel_info.get("id") or match.get("channel") or match.get("channel_id")
+                ts = match.get("thread_ts") or match.get("ts")
+                if isinstance(ch_id, str) and isinstance(ts, str):
+                    resolved_permalink = slack.get_permalink(ch_id, ts)
+                    if resolved_permalink:
+                        permalinks.append(resolved_permalink)
+            print(json.dumps(permalinks, indent=2))
+            cache.close()
+            return
+
+        for item in matches:
+            ts = item.get("thread_ts") or item.get("ts")
+            if not ts:
+                continue
+            dt = SlackService.ts_to_datetime(str(ts))
+            if dt < cutoff:
+                continue
+            channel_info = item.get("channel", {})
+            channel_id = channel_info.get("id") or item.get("channel") or item.get("channel_id")
+            if not isinstance(channel_id, str):
+                continue
+            thread_messages = slack.fetch_thread(channel_id, str(ts))
+            if not thread_messages or len(thread_messages) < 2:
+                continue
+            logger.info("Thread messages for %s, count: %d", slack.get_permalink(channel_id, ts), len(thread_messages))
+            threads.append(
+                {
+                    "channel_id": channel_id,
+                    "thread_ts": str(ts),
+                    "messages": thread_messages,
+                    "dt": dt,
+                }
+            )
 
     if settings.max_threads and len(threads) > settings.max_threads:
         threads = threads[: settings.max_threads]
@@ -142,6 +160,12 @@ def run_pipeline(settings: Settings, dry_run: bool | None = None) -> None:
         # Skip placeholder/title-only threads
         if not is_placeholder_thread(summary_blocks):
             blocks.extend(summary_blocks)
+            permalink = slack.get_permalink(thread["channel_id"], thread["thread_ts"])
+            if permalink:
+                blocks.append({
+                    "type": "context",
+                    "elements": [{"type": "mrkdwn", "text": f"<{permalink}|View thread>"}]
+                })
             blocks.append({"type": "divider"})
 
     if not blocks:

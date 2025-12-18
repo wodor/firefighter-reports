@@ -164,3 +164,19 @@ class SlackService:
     def ts_to_datetime(ts: str) -> datetime:
         return datetime.fromtimestamp(float(ts), tz=timezone.utc)
 
+    @staticmethod
+    def parse_permalink(permalink: str) -> tuple[str, str] | None:
+        """Extract channel_id and message_ts from a Slack permalink.
+        
+        Permalink format: https://workspace.slack.com/archives/C12345678/p1234567890123456
+        Returns (channel_id, message_ts) or None if parsing fails.
+        """
+        import re
+        match = re.search(r'/archives/([A-Z0-9]+)/p(\d+)', permalink)
+        if not match:
+            return None
+        channel_id = match.group(1)
+        ts_raw = match.group(2)
+        message_ts = f"{ts_raw[:10]}.{ts_raw[10:]}"
+        return channel_id, message_ts
+

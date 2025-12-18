@@ -1,3 +1,4 @@
 .env
 .venv
 /firefighter.log
+/src/firefighter.log
