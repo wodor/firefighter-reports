@@ -29,14 +29,14 @@ class Summarizer:
                         "[\n"
                         '  {{ "type": "header", "text": {{ "type": "plain_text", "text": "<Incident Title>", "emoji": true }} }},\n'
                         '  {{ "type": "context", "elements": [ {{ "type": "plain_text", "text": "<YYYY-MM-DD HH:mm>", "emoji": true }} ] }},\n'
-                        '  {{ "type": "section", "text": {{ "type": "mrkdwn", "text": "<Incident recap and actions>" }} }},\n'
+                        '  {{ "type": "section", "text": {{ "type": "mrkdwn", "text": "<Incident problem and solution>" }} }},\n'
                         '  {{ "type": "divider" }},\n'
                         '  {{ "type": "context", "elements": [ {{ "type": "mrkdwn", "text": "*Participants:* <Name1, Name2>" }} ] }}\n'
                         "]\n"
                         "Constraints:\n"
                         "Title: Short, clear summary.\n"
                         "Timestamp: human readable YYYY-mm-dd.\n"
-                        "Recap: Concise, use bold and code via mrkdwn.\n"
+                        "Incident problem and solution: Clearly define what was the issue and summarise actions taken to solve it. Use \"Problem:\" and \"Solution:\" paragraph prefixes. Include any links from the thread. Do not loose important details, be concise. Keep it under 120 words\n"
                         "Participants: List by name.\n"
                         "Use only these blocks: header, context, section, divider.\n"
                         "Validate JSON for Slack\n"
@@ -49,7 +49,6 @@ class Summarizer:
                         "Timestamp: {timestamp}\n"
                         "Thread:\n{thread_text}\n\n"
                         "Participants: {participants}\n"
-                        "Constraints: Keep summary under 120 words."
                     ),
                 ),
             ]
