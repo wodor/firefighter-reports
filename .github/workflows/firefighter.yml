@@ -32,5 +32,12 @@ jobs:
         run: pip install .
 
       - name: Run firefighter summary
-        run: python -m app.main run
+        run: |
+          python - <<'PY'
+          from app.config import Settings
+          from app.runner import run_pipeline
+          
+          settings = Settings()
+          run_pipeline(settings, dry_run=None)
+          PY
 
