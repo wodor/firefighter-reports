@@ -144,6 +144,126 @@ class SlackService:
             else:
                 raise RuntimeError(f"Slack post failed: {exc}") from exc
 
+    def post_blocks_in_thread(
+        self, channel_id: str, thread_ts: str, blocks: List[Dict[str, Any]]
+    ) -> None:
+        """Post blocks as a reply in an existing thread.
+        
+        Args:
+            channel_id: The channel ID to post in
+            thread_ts: The thread timestamp to reply to
+            blocks: The blocks to post
+        """
+        if not blocks:
+            return
+        try:
+            self.bot_client.chat_postMessage(
+                channel=channel_id,
+                thread_ts=thread_ts,
+                blocks=blocks,
+                text="Firefighter thread summary",
+            )
+        except SlackApiError as exc:
+            # If bot is not in channel, try to join it first
+            if exc.response and exc.response.get("error") == "not_in_channel":
+                try:
+                    self.bot_client.conversations_join(channel=channel_id)
+                    # Retry posting after joining
+                    self.bot_client.chat_postMessage(
+                        channel=channel_id,
+                        thread_ts=thread_ts,
+                        blocks=blocks,
+                        text="Firefighter thread summary",
+                    )
+                except SlackApiError as join_exc:
+                    raise RuntimeError(
+                        f"Slack post failed: Could not join channel {channel_id}. "
+                        f"Please invite the bot to the channel. Error: {join_exc}"
+                    ) from join_exc
+            else:
+                raise RuntimeError(f"Slack post in thread failed: {exc}") from exc
+
+    def get_or_create_weekly_thread(
+        self, channel_id: str, week_commencing_date: datetime
+    ) -> str:
+        """Get or create a weekly thread for the given week commencing date.
+        
+        Args:
+            channel_id: The channel ID to post in
+            week_commencing_date: The Monday date of the week
+            
+        Returns:
+            The thread timestamp (ts) of the weekly thread
+        """
+        date_str = week_commencing_date.strftime("%Y-%m-%d")
+        search_query = f'Firefighter weekly summary {date_str}'
+        
+        # Search for existing weekly thread
+        try:
+            result = self.user_client.search_messages(
+                query=search_query,
+                count=10,
+                sort="timestamp",
+            )
+            messages_data = result.get("messages", {})
+            matches = messages_data.get("matches", [])
+            
+            # Look for a message with the exact pattern in the correct channel
+            for match in matches:
+                text = match.get("text", "")
+                if f"Firefighter weekly summary {date_str}" in text:
+                    # Verify it's in the correct channel
+                    channel_info = match.get("channel", {})
+                    match_channel_id = channel_info.get("id") if isinstance(channel_info, dict) else match.get("channel")
+                    if match_channel_id == channel_id:
+                        ts = match.get("ts")
+                        if isinstance(ts, str):
+                            return ts
+        except SlackApiError:
+            # If search fails, we'll create a new thread
+            pass
+        
+        # Create new weekly thread
+        blocks = [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": f"Firefighter weekly summary {date_str}",
+                },
+            }
+        ]
+        
+        try:
+            response = self.bot_client.chat_postMessage(
+                channel=channel_id,
+                blocks=blocks,
+                text=f"Firefighter weekly summary {date_str}",
+            )
+        except SlackApiError as exc:
+            # If bot is not in channel, try to join it first
+            if exc.response and exc.response.get("error") == "not_in_channel":
+                try:
+                    self.bot_client.conversations_join(channel=channel_id)
+                    # Retry posting after joining
+                    response = self.bot_client.chat_postMessage(
+                        channel=channel_id,
+                        blocks=blocks,
+                        text=f"Firefighter weekly summary {date_str}",
+                    )
+                except SlackApiError as join_exc:
+                    raise RuntimeError(
+                        f"Slack post failed: Could not join channel {channel_id}. "
+                        f"Please invite the bot to the channel. Error: {join_exc}"
+                    ) from join_exc
+            else:
+                raise RuntimeError(f"Slack post failed: {exc}") from exc
+        
+        message_ts = response.get("ts")
+        if not isinstance(message_ts, str):
+            raise RuntimeError("Failed to get thread timestamp from Slack response")
+        return message_ts
+
     def resolve_user_name(self, user_id: str) -> str:
         cache_key = f"user:{user_id}"
         cached = self.cache.get_json(cache_key)

@@ -11,6 +11,20 @@ from .summarizer import Summarizer
 logger = logging.getLogger(__name__)
 
 
+def get_week_commencing_date(dt: datetime) -> datetime:
+    """Calculate the Monday of the week for a given datetime.
+    
+    Args:
+        dt: The datetime to calculate the week commencing date for
+        
+    Returns:
+        The Monday of the week (weekday 0) at midnight UTC
+    """
+    days_since_monday = dt.weekday()
+    monday = dt - timedelta(days=days_since_monday)
+    return monday.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
 def build_thread_text(
     messages: List[Dict[str, Any]],
     resolve_user_name: Callable[[str], str],
@@ -140,7 +154,17 @@ def run_pipeline(settings: Settings, dry_run: bool | None = None, permalink: str
                 return True
         return False
 
-    blocks: List[Dict[str, Any]] = []
+    # Calculate week commencing date (Monday of current week)
+    current_date = datetime.now(tz=timezone.utc)
+    week_commencing = get_week_commencing_date(current_date)
+    
+    # Get or create the weekly thread
+    weekly_thread_ts = slack.get_or_create_weekly_thread(
+        settings.slack_channel_id, week_commencing
+    )
+    
+    # Process threads and post summaries individually
+    summaries_posted = 0
     for thread in threads:
         cache_key = f"thread-summary:{thread['thread_ts']}"
         cached = cache.get_json(cache_key)
@@ -159,17 +183,22 @@ def run_pipeline(settings: Settings, dry_run: bool | None = None, permalink: str
         
         # Skip placeholder/title-only threads
         if not is_placeholder_thread(summary_blocks):
-            blocks.extend(summary_blocks)
+            # Post this summary as a separate message in the weekly thread
+            message_blocks = summary_blocks.copy()
             permalink = slack.get_permalink(thread["channel_id"], thread["thread_ts"])
             if permalink:
-                blocks.append({
+                message_blocks.append({
                     "type": "context",
                     "elements": [{"type": "mrkdwn", "text": f"<{permalink}|View thread>"}]
                 })
-            blocks.append({"type": "divider"})
+            slack.post_blocks_in_thread(
+                settings.slack_channel_id, weekly_thread_ts, message_blocks
+            )
+            summaries_posted += 1
 
-    if not blocks:
-        blocks = [
+    # If no summaries were posted, post a message indicating no threads found
+    if summaries_posted == 0:
+        no_threads_blocks = [
             {
                 "type": "section",
                 "text": {
@@ -178,8 +207,9 @@ def run_pipeline(settings: Settings, dry_run: bool | None = None, permalink: str
                 },
             }
         ]
-
-    slack.post_blocks(settings.slack_channel_id, blocks)
+        slack.post_blocks_in_thread(
+            settings.slack_channel_id, weekly_thread_ts, no_threads_blocks
+        )
 
     cache.close()
 
