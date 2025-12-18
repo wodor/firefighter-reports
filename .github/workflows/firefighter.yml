@@ -41,11 +41,5 @@ jobs:
 
       - name: Run firefighter summary
         run: |
-          python - <<'PY'
-          from app.config import Settings
-          from app.runner import run_pipeline
-          
-          settings = Settings()
-          run_pipeline(settings, dry_run=None)
-          PY
+          python -m src.app.main
 
