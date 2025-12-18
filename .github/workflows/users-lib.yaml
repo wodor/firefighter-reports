@@ -1,6 +1,7 @@
 name: UsersLib
 
 on:
+  push:
   # Manual trigger (equivalent to "When clicking 'Execute workflow'")
   workflow_dispatch:
     inputs:
