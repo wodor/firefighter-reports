@@ -49,7 +49,23 @@ class SlackService:
                 text="Firefighter daily summary",
             )
         except SlackApiError as exc:
-            raise RuntimeError(f"Slack post failed: {exc}") from exc
+            # If bot is not in channel, try to join it first
+            if exc.response and exc.response.get("error") == "not_in_channel":
+                try:
+                    self.bot_client.conversations_join(channel=channel_id)
+                    # Retry posting after joining
+                    self.bot_client.chat_postMessage(
+                        channel=channel_id,
+                        blocks=blocks,
+                        text="Firefighter daily summary",
+                    )
+                except SlackApiError as join_exc:
+                    raise RuntimeError(
+                        f"Slack post failed: Could not join channel {channel_id}. "
+                        f"Please invite the bot to the channel. Error: {join_exc}"
+                    ) from join_exc
+            else:
+                raise RuntimeError(f"Slack post failed: {exc}") from exc
 
     def resolve_user_name(self, user_id: str) -> str:
         cache_key = f"user:{user_id}"
