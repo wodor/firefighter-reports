@@ -72,6 +72,36 @@ def run_pipeline(settings: Settings, dry_run: bool | None = None) -> None:
     if settings.max_threads and len(threads) > settings.max_threads:
         threads = threads[: settings.max_threads]
 
+    def is_placeholder_thread(blocks: List[Dict[str, Any]]) -> bool:
+        """Check if blocks represent a placeholder/title-only thread."""
+        placeholder_patterns = [
+            "placeholder/title only",
+            "placeholder/title",
+            "no thread messages provided beyond the title",
+            "no thread messages provided",
+        ]
+        # Collect all text content from blocks
+        all_text = ""
+        for block in blocks:
+            if block.get("type") == "section" and "text" in block:
+                text_obj = block["text"]
+                if isinstance(text_obj, dict):
+                    all_text += text_obj.get("text", "").lower()
+            elif block.get("type") == "header" and "text" in block:
+                text_obj = block["text"]
+                if isinstance(text_obj, dict):
+                    all_text += text_obj.get("text", "").lower()
+            elif block.get("type") == "context" and "elements" in block:
+                for element in block["elements"]:
+                    if element.get("type") in ("mrkdwn", "plain_text"):
+                        all_text += element.get("text", "").lower()
+        
+        # Check if any placeholder pattern is found in the combined text
+        for pattern in placeholder_patterns:
+            if pattern in all_text:
+                return True
+        return False
+
     blocks: List[Dict[str, Any]] = []
     for thread in threads:
         cache_key = f"thread-summary:{thread['thread_ts']}"
@@ -88,8 +118,11 @@ def run_pipeline(settings: Settings, dry_run: bool | None = None) -> None:
                 participants=participants,
             )
             cache.set_json(cache_key, summary_blocks, settings.thread_cache_ttl)
-        blocks.extend(summary_blocks)
-        blocks.append({"type": "divider"})
+        
+        # Skip placeholder/title-only threads
+        if not is_placeholder_thread(summary_blocks):
+            blocks.extend(summary_blocks)
+            blocks.append({"type": "divider"})
 
     if not blocks:
         blocks = [
