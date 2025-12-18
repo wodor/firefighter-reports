@@ -1,3 +1,5 @@
+import logging
+import sys
 from typing import Optional
 
 import typer
@@ -5,22 +7,42 @@ import typer
 from .config import Settings
 from .runner import run_pipeline
 
-app = typer.Typer(add_completion=False, no_args_is_help=True)
-
-
-@app.command()
-def run(
-    dry_run: Optional[bool] = typer.Option(
-        None,
-        "--dry-run/--no-dry-run",
-        help="Print blocks instead of posting to Slack; defaults to DRY_RUN env",
+def setup_logging() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler("firefighter.log"),
+        ],
+        force=True,
     )
+
+
+def main(
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Force dry run: print blocks instead of posting to Slack",
+        is_flag=True,
+    ),
+    no_dry_run: bool = typer.Option(
+        False,
+        "--no-dry-run",
+        help="Force posting to Slack even if DRY_RUN env is true",
+        is_flag=True,
+    ),
 ) -> None:
+    if dry_run and no_dry_run:
+        raise typer.BadParameter("Choose only one of --dry-run or --no-dry-run")
+
+    setup_logging()
     settings = Settings()
-    effective_dry_run = settings.dry_run if dry_run is None else dry_run
+    override_dry_run: Optional[bool] = True if dry_run else False if no_dry_run else None
+    effective_dry_run = settings.dry_run if override_dry_run is None else override_dry_run
     run_pipeline(settings=settings, dry_run=effective_dry_run)
 
 
 if __name__ == "__main__":
-    app()
+    typer.run(main)
 

@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Set
 
@@ -6,6 +7,8 @@ from .cache import Cache
 from .config import Settings
 from .slack_service import SlackService
 from .summarizer import Summarizer
+
+logger = logging.getLogger(__name__)
 
 
 def build_thread_text(
@@ -74,6 +77,7 @@ def run_pipeline(settings: Settings, dry_run: bool | None = None) -> None:
         cache_key = f"thread-summary:{thread['thread_ts']}"
         cached = cache.get_json(cache_key)
         thread_text, participants = build_thread_text(thread["messages"], slack.resolve_user_name)
+        logger.info("Thread text for %s:\n%s", thread["thread_ts"], thread_text)
         timestamp_str = thread["dt"].strftime("%Y-%m-%d")
         if cached:
             summary_blocks = cached
