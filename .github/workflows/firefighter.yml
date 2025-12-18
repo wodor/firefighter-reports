@@ -17,7 +17,7 @@ jobs:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
       SLACK_USER_TOKEN: ${{ secrets.SLACK_USER_TOKEN }}
-      SLACK_CHANNEL_ID: C06NH7VRZ88
+      SLACK_CHANNEL_ID: C0A4B9HF4MU
       REDIS_URL: redis://localhost:6379/0
       SEARCH_QUERY: "@platform-firefighter"
       SEARCH_LIMIT: "50"
