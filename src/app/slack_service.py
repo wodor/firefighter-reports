@@ -36,11 +36,7 @@ class SlackService:
                 )
                 messages_data = result.get("messages", {})
                 matches = messages_data.get("matches", [])
-                filtered_matches = [
-                    match
-                    for match in matches
-                    if match.get("subtype") != "bot_message" and not match.get("bot_id")
-                ]
+                filtered_matches = [match for match in matches if self._is_human_message(match)]
                 all_matches.extend(filtered_matches)
                 
                 # Check if there are more pages
@@ -55,6 +51,48 @@ class SlackService:
         # Return up to the requested limit
         return all_matches[:limit]
 
+    def _is_human_message(self, match: Dict[str, Any]) -> bool:
+        subtype = match.get("subtype")
+        if subtype in {"bot_message", "slackbot_response", "app_message"}:
+            return False
+        if match.get("bot_id") or match.get("app_id"):
+            return False
+        if match.get("username") and not match.get("user"):
+            return False
+        user = match.get("user")
+        if isinstance(user, str) and user.upper() == "USLACKBOT":
+            return False
+        if isinstance(user, str) and self._is_bot_user(user):
+            return False
+        profile = match.get("user_profile")
+        if isinstance(profile, dict):
+            if profile.get("is_bot"):
+                return False
+            name = (
+                profile.get("display_name_normalized")
+                or profile.get("real_name_normalized")
+                or profile.get("name")
+            )
+            if isinstance(name, str) and name.lower() == "slackbot":
+                return False
+        return True
+
+    def _is_bot_user(self, user_id: str) -> bool:
+        cache_key = f"user_is_bot:{user_id}"
+        cached = self.cache.get_json(cache_key)
+        if isinstance(cached, dict) and "is_bot" in cached and isinstance(cached["is_bot"], bool):
+            return cached["is_bot"]
+        try:
+            result = self.user_client.users_info(user=user_id)
+        except SlackApiError:
+            return False
+        user_obj: Optional[Dict[str, Any]] = result.get("user")
+        if not user_obj:
+            return False
+        is_bot = bool(user_obj.get("is_bot"))
+        self.cache.set_json(cache_key, {"is_bot": is_bot}, self.user_cache_ttl)
+        return is_bot
+
     def fetch_thread(self, channel_id: str, thread_ts: str) -> List[Dict[str, Any]]:
         try:
             result = self.user_client.conversations_replies(
@@ -66,6 +104,17 @@ class SlackService:
         except SlackApiError as exc:
             raise RuntimeError(f"Slack thread fetch failed: {exc}") from exc
         return result.get("messages", [])
+
+    def get_permalink(self, channel_id: str, message_ts: str) -> Optional[str]:
+        try:
+            result = self.user_client.chat_getPermalink(
+                channel=channel_id,
+                message_ts=message_ts,
+            )
+        except SlackApiError:
+            return None
+        permalink = result.get("permalink")
+        return permalink if isinstance(permalink, str) else None
 
     def post_blocks(self, channel_id: str, blocks: List[Dict[str, Any]]) -> None:
         if not blocks:

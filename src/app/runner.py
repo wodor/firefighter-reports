@@ -41,9 +41,28 @@ def run_pipeline(settings: Settings, dry_run: bool | None = None) -> None:
         api_key=settings.openai_api_key,
         model=settings.openai_model,
     )
+    effective_dry_run = settings.dry_run if dry_run is None else dry_run
 
     cutoff = datetime.now(tz=timezone.utc) - timedelta(days=settings.lookback_days)
     matches = slack.search_messages(settings.search_query, settings.search_limit)
+
+    if  False and effective_dry_run:
+        permalinks: List[str] = []
+        for match in matches:
+            permalink = match.get("permalink")
+            if isinstance(permalink, str) and permalink:
+                permalinks.append(permalink)
+                continue
+            channel_info = match.get("channel", {})
+            channel_id = channel_info.get("id") or match.get("channel") or match.get("channel_id")
+            ts = match.get("thread_ts") or match.get("ts")
+            if isinstance(channel_id, str) and isinstance(ts, str):
+                resolved_permalink = slack.get_permalink(channel_id, ts)
+                if resolved_permalink:
+                    permalinks.append(resolved_permalink)
+        print(json.dumps(permalinks, indent=2))
+        cache.close()
+        return
 
     threads: List[Dict[str, Any]] = []
     for item in matches:
@@ -58,8 +77,9 @@ def run_pipeline(settings: Settings, dry_run: bool | None = None) -> None:
         if not isinstance(channel_id, str):
             continue
         thread_messages = slack.fetch_thread(channel_id, str(ts))
-        if not thread_messages:
+        if not thread_messages or len(thread_messages) < 2:
             continue
+        logger.info("Thread messages for %s, count: %d", slack.get_permalink(channel_id, ts), len(thread_messages))
         threads.append(
             {
                 "channel_id": channel_id,
@@ -135,12 +155,7 @@ def run_pipeline(settings: Settings, dry_run: bool | None = None) -> None:
             }
         ]
 
-    effective_dry_run = settings.dry_run if dry_run is None else dry_run
-
-    if effective_dry_run:
-        print(json.dumps(blocks, indent=2))
-    else:
-        slack.post_blocks(settings.slack_channel_id, blocks)
+    slack.post_blocks(settings.slack_channel_id, blocks)
 
     cache.close()
 
