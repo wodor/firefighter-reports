@@ -1,0 +1,70 @@
+workflow UsersLib:
+  settings:
+    executionOrder = v1
+    active = true
+
+  nodes:
+    ExecuteTrigger:
+      type = executeWorkflowTrigger
+      input: slack_user_id
+
+    ManualTrigger: on execute
+
+    ScheduleTrigger:
+      daily at 21:15
+
+    SetSlackUserId:
+      slack_user_id = input.slack_user_id ?? "U04SHBKFA1E"
+
+    RedisGetUser:
+      redis.get key = "slack-user-id-{slack_user_id}"
+      keyType = sets
+      propertyName = user
+      dotNotation = true
+
+    IfHasCachedUser:
+      condition: json.user.length > 0
+      true -> EditFields1
+      false -> GetUserFromSlack
+
+    GetUserFromSlack:
+      slack.user.get id = slack_user_id
+      onError = continueErrorOutput
+
+    RedisCacheUserTTL:
+      redis.set key = "slack-user-id-{id}"
+      value = json.compact().toJsonString()
+      keyType = sets
+      expire = true
+      ttl = 6000
+
+    SetUserObject:
+      user = json.compact()
+
+    EditFields1:
+      output raw:
+        if user.length > 0:
+          json.user.first()
+        else:
+          { error: "user not found: " + $('slack_user_id').item.json.slack_user_id }
+
+    SelectFields:
+      include fields id, name, real_name
+
+    FetchAllUsers:
+      slack.user.getAll returnAll = true
+
+    RedisSetAllUsers:
+      redis.set key = "slack-user-id-{id}"
+      value = json.compact().toJsonString()
+      keyType = sets
+
+  connections (main):
+    ExecuteTrigger -> SetSlackUserId -> RedisGetUser -> IfHasCachedUser
+    ManualTrigger -> SetSlackUserId (same path as above)
+    IfHasCachedUser true -> EditFields1 -> SelectFields
+    IfHasCachedUser false -> GetUserFromSlack -> RedisCacheUserTTL -> SetUserObject -> EditFields1
+
+  schedule flow:
+    ScheduleTrigger -> FetchAllUsers -> RedisSetAllUsers
+

@@ -1,0 +1,106 @@
+workflow Firefighter:
+  settings:
+    executionOrder = v1
+    timezone = Europe/London
+    active = false
+
+  nodes:
+    ManualTrigger: on execute
+
+    SearchMessages:
+      type = slack.search
+      query = "@platform-firefighter"
+      limit = 50
+      uses Slack User creds
+
+    DateLimit:
+      if new Date(item.ts*1000) after today.minus(7 days):
+        pass
+      else drop
+
+    SetChannelId:
+      channel_id = item.channel.id ?? item.channel
+
+    GetReplies:
+      slack.channel.replies
+      channelId = channel_id
+      ts = item.ts
+      filters: inclusive true, latest = new Date(ts*1000), oldest = same
+      uses Slack User creds
+
+    GetThread:
+      slack.channel.replies
+      channelId = $('channel_id').item.json.channel_id
+      ts = item.thread_ts ?? item.ts
+      inclusive false
+      uses Slack User creds
+
+    SummarizeThread:
+      group by thread_ts; fields:
+        concatenated_text = concatenate text with separator "\nReply:\n"
+        user
+        concatenated_reply_users = concatenate reply_users
+        min_ts = min ts
+      output separate items
+
+    SetDate:
+      requestedAt = new Date(min_ts*1000).toDateTime().toISO()
+      include other fields
+
+    AI_Agent:
+      prompt:
+        Time: requestedAt
+        Thread: concatenated_text
+        People involved: concatenated_reply_users
+      system message:
+        create short summary for daily firefighter report (Slack blocks)
+        template blocks: header, context, section, divider, context Participants
+        constraints: title short; timestamp YYYY-MM-DD; recap concise with bold/code; participants by name; validate JSON; return only JSON
+      language model = Claude Sonnet 4.5 (Anthropic)
+      tools: StructuredOutputParser, CallUsersLib
+      memory: SimpleMemory (sessionKey = min_ts; window 10)
+      onError: continueErrorOutput
+
+    StructuredOutputParser:
+      schema: array of Slack blocks (header/context/section/divider) as defined
+      model = Claude Sonnet 4.5
+
+    CallUsersLib (tool):
+      workflowId = 9QFCpTgahFUiakrN (UsersLib)
+      input: slack_user_id = fromAI('slack_user_id', 'user id like U04CDECF777')
+
+    EditFields1:
+      day = new Date(output[1].elements[0].text).format('yyyy-MM-dd')
+      include other fields
+
+    Summarize1:
+      group by day; append aggregation of output; separate items
+
+    EditFields:
+      jsonOutput:
+        blocks = appended_output.flatMap(item => item)
+
+    SendMessage:
+      slack.post channel C06NH7VRZ88
+      messageType = block
+      blocksUi = {blocks: blocks}
+      text empty
+      notes: C02UTTBR4FQ platform internal; C06NH7VRZ88 art test
+      uses Slack User creds
+
+    HTTPRequest:
+      GET https://n8n.wodor.net/webhook/reactions
+
+    IfReaction:
+      condition reaction == "brain"
+      true path -> SetChannelId
+
+  connections (main flow):
+    ManualTrigger -> SearchMessages -> DateLimit -> SetChannelId -> GetReplies -> GetThread -> SummarizeThread -> SetDate -> AI_Agent -> EditFields1 -> Summarize1 -> EditFields -> SendMessage
+
+  side flow:
+    HTTPRequest -> IfReaction -> SetChannelId (then rejoins main path at GetReplies)
+
+  ai connections:
+    AI_Agent uses Anthropic Chat Model; StructuredOutputParser as output parser; CallUsersLib as tool; SimpleMemory as memory
+
