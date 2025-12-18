@@ -58,6 +58,7 @@ def run_pipeline(settings: Settings, dry_run: bool | None = None, permalink: str
     effective_dry_run = settings.dry_run if dry_run is None else dry_run
 
     threads: List[Dict[str, Any]] = []
+    logger.info("Looking for threads in the last %d days", settings.lookback_days)
 
     if permalink:
         parsed = SlackService.parse_permalink(permalink)
@@ -78,25 +79,8 @@ def run_pipeline(settings: Settings, dry_run: bool | None = None, permalink: str
     else:
         cutoff = datetime.now(tz=timezone.utc) - timedelta(days=settings.lookback_days)
         matches = slack.search_messages(settings.search_query, settings.search_limit)
-
-        if False and effective_dry_run:
-            permalinks: List[str] = []
-            for match in matches:
-                plink = match.get("permalink")
-                if isinstance(plink, str) and plink:
-                    permalinks.append(plink)
-                    continue
-                channel_info = match.get("channel", {})
-                ch_id = channel_info.get("id") or match.get("channel") or match.get("channel_id")
-                ts = match.get("thread_ts") or match.get("ts")
-                if isinstance(ch_id, str) and isinstance(ts, str):
-                    resolved_permalink = slack.get_permalink(ch_id, ts)
-                    if resolved_permalink:
-                        permalinks.append(resolved_permalink)
-            print(json.dumps(permalinks, indent=2))
-            cache.close()
-            return
-
+        logger.info("Found %d matches", len(matches))
+        
         for item in matches:
             ts = item.get("thread_ts") or item.get("ts")
             if not ts:
@@ -124,36 +108,6 @@ def run_pipeline(settings: Settings, dry_run: bool | None = None, permalink: str
     if settings.max_threads and len(threads) > settings.max_threads:
         threads = threads[: settings.max_threads]
 
-    def is_placeholder_thread(blocks: List[Dict[str, Any]]) -> bool:
-        """Check if blocks represent a placeholder/title-only thread."""
-        placeholder_patterns = [
-            "placeholder/title only",
-            "placeholder/title",
-            "no thread messages provided beyond the title",
-            "no thread messages provided",
-        ]
-        # Collect all text content from blocks
-        all_text = ""
-        for block in blocks:
-            if block.get("type") == "section" and "text" in block:
-                text_obj = block["text"]
-                if isinstance(text_obj, dict):
-                    all_text += text_obj.get("text", "").lower()
-            elif block.get("type") == "header" and "text" in block:
-                text_obj = block["text"]
-                if isinstance(text_obj, dict):
-                    all_text += text_obj.get("text", "").lower()
-            elif block.get("type") == "context" and "elements" in block:
-                for element in block["elements"]:
-                    if element.get("type") in ("mrkdwn", "plain_text"):
-                        all_text += element.get("text", "").lower()
-        
-        # Check if any placeholder pattern is found in the combined text
-        for pattern in placeholder_patterns:
-            if pattern in all_text:
-                return True
-        return False
-
     # Calculate week commencing date (Monday of current week)
     current_date = datetime.now(tz=timezone.utc)
     week_commencing = get_week_commencing_date(current_date)
@@ -180,20 +134,18 @@ def run_pipeline(settings: Settings, dry_run: bool | None = None, permalink: str
             )
             cache.set_json(cache_key, summary_blocks, settings.thread_cache_ttl)
         
-        # Skip placeholder/title-only threads
-        if not is_placeholder_thread(summary_blocks):
-            # Post this summary as a separate message in the weekly thread
-            message_blocks = summary_blocks.copy()
-            permalink = slack.get_permalink(thread["channel_id"], thread["thread_ts"])
-            if permalink:
-                message_blocks.append({
-                    "type": "context",
-                    "elements": [{"type": "mrkdwn", "text": f"<{permalink}|View thread>"}]
-                })
-            slack.post_blocks_in_thread(
-                settings.slack_channel_id, weekly_thread_ts, message_blocks
-            )
-            summaries_posted += 1
+        # Post this summary as a separate message in the weekly thread
+        message_blocks = summary_blocks.copy()
+        permalink = slack.get_permalink(thread["channel_id"], thread["thread_ts"])
+        if permalink:
+            message_blocks.append({
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": f"<{permalink}|View thread>"}]
+            })
+        slack.post_blocks_in_thread(
+            settings.slack_channel_id, weekly_thread_ts, message_blocks
+        )
+        summaries_posted += 1
 
     # If no summaries were posted, post a message indicating no threads found
     if summaries_posted == 0:
