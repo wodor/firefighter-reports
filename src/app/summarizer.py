@@ -19,10 +19,28 @@ class Summarizer:
                 (
                     "system",
                     (
-                        "Summarize Slack firefighter threads. Return ONLY JSON array of Slack "
-                        "blocks (header/context/section/divider). Keep title short, include date "
-                        "YYYY-MM-DD, keep recap concise with bold or code spans as needed, list "
-                        "participants by name. Validate JSON; do not wrap in markdown."
+                        "Create a short summary to insert into daily fireghter report.\n"
+                        "Summarise this slack request for help to fireghter (person who takes care of urgent tech requests in the organisation) \n"
+                        "`<!subteam^S074GEYMPAQ>` - this is the mention of firefigther \n"
+                        "`Is it ok for <@user-id> to run the following` is a req for permission to run a script. \n"
+                        "Show date in human friendly way YYYY-mm-dd H:i\n"
+                        "Format this as slack blocks \n"
+                        "Template:\n"
+                        "[\n"
+                        '  {{ "type": "header", "text": {{ "type": "plain_text", "text": "<Incident Title>", "emoji": true }} }},\n'
+                        '  {{ "type": "context", "elements": [ {{ "type": "plain_text", "text": "<YYYY-MM-DD HH:mm>", "emoji": true }} ] }},\n'
+                        '  {{ "type": "section", "text": {{ "type": "mrkdwn", "text": "<Incident recap and actions>" }} }},\n'
+                        '  {{ "type": "divider" }},\n'
+                        '  {{ "type": "context", "elements": [ {{ "type": "mrkdwn", "text": "*Participants:* <Name1, Name2>" }} ] }}\n'
+                        "]\n"
+                        "Constraints:\n"
+                        "Title: Short, clear summary.\n"
+                        "Timestamp: human readable YYYY-mm-dd.\n"
+                        "Recap: Concise, use bold and code via mrkdwn.\n"
+                        "Participants: List by name.\n"
+                        "Use only these blocks: header, context, section, divider.\n"
+                        "Validate JSON for Slack\n"
+                        "return only json"
                     ),
                 ),
                 (
@@ -39,21 +57,37 @@ class Summarizer:
 
     def summarize(self, timestamp: str, thread_text: str, participants: List[str]) -> List[Dict[str, Any]]:
         chain = self.prompt | self.llm | self.parser
-        raw = chain.invoke(
+        raw: str = chain.invoke(
             {
                 "timestamp": timestamp,
                 "thread_text": thread_text,
                 "participants": ", ".join(participants),
             }
         )
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            return [
-                {"type": "header", "text": {"type": "plain_text", "text": f"Firefighter {timestamp}"}},
-                {"type": "section", "text": {"type": "mrkdwn", "text": raw.strip()}},
-            ]
+        parsed = self._parse_blocks(raw)
         if isinstance(parsed, list):
             return parsed
-        return [parsed] if isinstance(parsed, dict) else []
+        return [parsed] if isinstance(parsed, dict) else [
+            {"type": "header", "text": {"type": "plain_text", "text": f"Firefighter {timestamp}"}},
+            {"type": "section", "text": {"type": "mrkdwn", "text": raw.strip()}},
+        ]
+
+    @staticmethod
+    def _strip_code_fences(raw: str) -> str:
+        text = raw.strip()
+        if text.startswith("```"):
+            lines = text.splitlines()
+            if lines and lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            text = "\n".join(lines).strip()
+        return text
+
+    def _parse_blocks(self, raw: str) -> Any:
+        text = self._strip_code_fences(raw)
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return None
 
