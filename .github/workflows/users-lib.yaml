@@ -31,9 +31,6 @@ on:
     - cron: '15 21 * * *'  # 21:15 UTC daily
 
 env:
-  REDIS_HOST: ${{ secrets.REDIS_HOST }}
-  REDIS_PORT: ${{ secrets.REDIS_PORT || '6379' }}
-  REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
   SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
 
 jobs:
@@ -41,6 +38,16 @@ jobs:
   fetch-all-users:
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
     steps:
       - name: Install Redis CLI
         run: |
@@ -51,9 +58,6 @@ jobs:
         id: fetch-all
         env:
           SLACK_BOT_TOKEN: ${{ env.SLACK_BOT_TOKEN }}
-          REDIS_HOST: ${{ env.REDIS_HOST }}
-          REDIS_PORT: ${{ env.REDIS_PORT }}
-          REDIS_PASSWORD: ${{ env.REDIS_PASSWORD }}
         run: |
           response=$(curl -s -X POST https://slack.com/api/users.list \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
@@ -67,17 +71,11 @@ jobs:
             exit 1
           fi
           
-          # Build Redis connection command
-          REDIS_CMD="redis-cli -h $REDIS_HOST -p $REDIS_PORT"
-          if [ -n "$REDIS_PASSWORD" ]; then
-            REDIS_CMD="$REDIS_CMD -a $REDIS_PASSWORD"
-          fi
-          
-          # Parse and cache each user
+          # Parse and cache each user in Redis (running in service container)
           echo "$response" | jq -r '.members[] | @json' | while IFS= read -r user_json; do
             user_id=$(echo "$user_json" | jq -r '.id')
             if [ "$user_id" != "null" ] && [ -n "$user_id" ]; then
-              $REDIS_CMD SET "slack-user-id-$user_id" "$user_json" || true
+              redis-cli -h localhost -p 6379 SET "slack-user-id-$user_id" "$user_json" || true
             fi
           done
           
@@ -87,6 +85,16 @@ jobs:
   get-user:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
     outputs:
       user: ${{ steps.format-output.outputs.user }}
       error: ${{ steps.format-output.outputs.error }}
@@ -117,22 +125,12 @@ jobs:
       
       - name: Check Redis cache
         id: check-cache
-        env:
-          REDIS_HOST: ${{ env.REDIS_HOST }}
-          REDIS_PORT: ${{ env.REDIS_PORT }}
-          REDIS_PASSWORD: ${{ env.REDIS_PASSWORD }}
         run: |
           USER_ID="${{ steps.set-user-id.outputs.slack_user_id }}"
           CACHE_KEY="slack-user-id-$USER_ID"
           
-          # Build Redis connection command
-          REDIS_CMD="redis-cli -h $REDIS_HOST -p $REDIS_PORT"
-          if [ -n "$REDIS_PASSWORD" ]; then
-            REDIS_CMD="$REDIS_CMD -a $REDIS_PASSWORD"
-          fi
-          
-          # Try to get from Redis
-          cached_user=$($REDIS_CMD GET "$CACHE_KEY" 2>/dev/null || echo "")
+          # Try to get from Redis (running in service container)
+          cached_user=$(redis-cli -h localhost -p 6379 GET "$CACHE_KEY" 2>/dev/null || echo "")
           
           if [ -n "$cached_user" ] && [ "$cached_user" != "(nil)" ] && [ "$cached_user" != "" ]; then
             echo "found_in_cache=true" >> $GITHUB_OUTPUT
@@ -179,25 +177,14 @@ jobs:
       
       - name: Cache user in Redis
         if: steps.check-cache.outputs.found_in_cache != 'true' && steps.fetch-slack.outputs.user != ''
-        env:
-          REDIS_HOST: ${{ env.REDIS_HOST }}
-          REDIS_PORT: ${{ env.REDIS_PORT }}
-          REDIS_PASSWORD: ${{ env.REDIS_PASSWORD }}
         run: |
           USER_ID="${{ steps.fetch-slack.outputs.user_id }}"
           USER_DATA="${{ steps.fetch-slack.outputs.user }}"
           CACHE_KEY="slack-user-id-$USER_ID"
           TTL=6000
           
-          # Build Redis connection command
-          REDIS_CMD="redis-cli -h $REDIS_HOST -p $REDIS_PORT"
-          if [ -n "$REDIS_PASSWORD" ]; then
-            REDIS_CMD="$REDIS_CMD -a $REDIS_PASSWORD"
-          fi
-          
-          # Store in Redis with TTL
-          # Escape the JSON data properly for redis-cli
-          $REDIS_CMD SETEX "$CACHE_KEY" "$TTL" "$USER_DATA"
+          # Store in Redis with TTL (running in service container)
+          redis-cli -h localhost -p 6379 SETEX "$CACHE_KEY" "$TTL" "$USER_DATA"
           
           echo "User cached in Redis with TTL $TTL seconds"
       
