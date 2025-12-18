@@ -36,9 +36,12 @@ class SlackService:
                 )
                 messages_data = result.get("messages", {})
                 matches = messages_data.get("matches", [])
-                if not matches:
-                    break
-                all_matches.extend(matches)
+                filtered_matches = [
+                    match
+                    for match in matches
+                    if match.get("subtype") != "bot_message" and not match.get("bot_id")
+                ]
+                all_matches.extend(filtered_matches)
                 
                 # Check if there are more pages
                 paging = messages_data.get("paging", {})
