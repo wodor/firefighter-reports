@@ -21,11 +21,36 @@ class SlackService:
         self.user_cache_ttl = user_cache_ttl
 
     def search_messages(self, query: str, limit: int) -> List[Dict[str, Any]]:
+        all_matches: List[Dict[str, Any]] = []
+        page = 1
+        max_pages = 20  # Safety limit to avoid infinite loops
+        per_page = 100  # Slack API max is 100 per page
+        
         try:
-            result = self.user_client.search_messages(query=query, count=limit)
+            while page <= max_pages and len(all_matches) < limit:
+                result = self.user_client.search_messages(
+                    query=query,
+                    count=per_page,
+                    page=page,
+                    sort="timestamp",  # Sort by timestamp to get most recent first
+                )
+                messages_data = result.get("messages", {})
+                matches = messages_data.get("matches", [])
+                if not matches:
+                    break
+                all_matches.extend(matches)
+                
+                # Check if there are more pages
+                paging = messages_data.get("paging", {})
+                total_pages = paging.get("pages", 1)
+                if page >= total_pages:
+                    break
+                page += 1
         except SlackApiError as exc:
             raise RuntimeError(f"Slack search failed: {exc}") from exc
-        return result.get("messages", {}).get("matches", [])
+        
+        # Return up to the requested limit
+        return all_matches[:limit]
 
     def fetch_thread(self, channel_id: str, thread_ts: str) -> List[Dict[str, Any]]:
         try:
