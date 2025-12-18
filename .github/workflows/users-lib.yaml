@@ -1,0 +1,239 @@
+name: UsersLib
+
+on:
+  # Manual trigger (equivalent to "When clicking 'Execute workflow'")
+  workflow_dispatch:
+    inputs:
+      slack_user_id:
+        description: 'Slack User ID'
+        required: false
+        default: 'U04SHBKFA1E'
+        type: string
+  
+  # Reusable workflow trigger (equivalent to "When Executed by Another Workflow")
+  workflow_call:
+    inputs:
+      slack_user_id:
+        description: 'Slack User ID'
+        required: false
+        default: 'U04SHBKFA1E'
+        type: string
+    outputs:
+      user:
+        description: 'User data (id, name, real_name)'
+        value: ${{ jobs.get-user.outputs.user }}
+      error:
+        description: 'Error message if user not found'
+        value: ${{ jobs.get-user.outputs.error }}
+  
+  # Scheduled trigger (equivalent to "Schedule Trigger" at 21:15)
+  schedule:
+    - cron: '15 21 * * *'  # 21:15 UTC daily
+
+env:
+  REDIS_HOST: ${{ secrets.REDIS_HOST }}
+  REDIS_PORT: ${{ secrets.REDIS_PORT || '6379' }}
+  REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+  SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+
+jobs:
+  # Job for scheduled fetch-all-users workflow
+  fetch-all-users:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Redis CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y redis-tools
+      
+      - name: Fetch all Slack users
+        id: fetch-all
+        env:
+          SLACK_BOT_TOKEN: ${{ env.SLACK_BOT_TOKEN }}
+          REDIS_HOST: ${{ env.REDIS_HOST }}
+          REDIS_PORT: ${{ env.REDIS_PORT }}
+          REDIS_PASSWORD: ${{ env.REDIS_PASSWORD }}
+        run: |
+          response=$(curl -s -X POST https://slack.com/api/users.list \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json")
+          
+          # Check if request was successful
+          ok=$(echo "$response" | jq -r '.ok')
+          if [ "$ok" != "true" ]; then
+            error=$(echo "$response" | jq -r '.error // "Unknown error"')
+            echo "Failed to fetch users: $error"
+            exit 1
+          fi
+          
+          # Build Redis connection command
+          REDIS_CMD="redis-cli -h $REDIS_HOST -p $REDIS_PORT"
+          if [ -n "$REDIS_PASSWORD" ]; then
+            REDIS_CMD="$REDIS_CMD -a $REDIS_PASSWORD"
+          fi
+          
+          # Parse and cache each user
+          echo "$response" | jq -r '.members[] | @json' | while IFS= read -r user_json; do
+            user_id=$(echo "$user_json" | jq -r '.id')
+            if [ "$user_id" != "null" ] && [ -n "$user_id" ]; then
+              $REDIS_CMD SET "slack-user-id-$user_id" "$user_json" || true
+            fi
+          done
+          
+          echo "All users cached in Redis"
+
+  # Main job for getting a single user
+  get-user:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    outputs:
+      user: ${{ steps.format-output.outputs.user }}
+      error: ${{ steps.format-output.outputs.error }}
+    steps:
+      - name: Install Redis CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y redis-tools
+      
+      - name: Set slack_user_id
+        id: set-user-id
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            USER_ID="${{ github.event.inputs.slack_user_id }}"
+          elif [ "${{ github.event_name }}" == "workflow_call" ]; then
+            USER_ID="${{ inputs.slack_user_id }}"
+          else
+            USER_ID="U04SHBKFA1E"
+          fi
+          
+          # Default to U04SHBKFA1E if empty
+          if [ -z "$USER_ID" ]; then
+            USER_ID="U04SHBKFA1E"
+          fi
+          
+          echo "slack_user_id=$USER_ID" >> $GITHUB_OUTPUT
+          echo "Using slack_user_id: $USER_ID"
+      
+      - name: Check Redis cache
+        id: check-cache
+        env:
+          REDIS_HOST: ${{ env.REDIS_HOST }}
+          REDIS_PORT: ${{ env.REDIS_PORT }}
+          REDIS_PASSWORD: ${{ env.REDIS_PASSWORD }}
+        run: |
+          USER_ID="${{ steps.set-user-id.outputs.slack_user_id }}"
+          CACHE_KEY="slack-user-id-$USER_ID"
+          
+          # Build Redis connection command
+          REDIS_CMD="redis-cli -h $REDIS_HOST -p $REDIS_PORT"
+          if [ -n "$REDIS_PASSWORD" ]; then
+            REDIS_CMD="$REDIS_CMD -a $REDIS_PASSWORD"
+          fi
+          
+          # Try to get from Redis
+          cached_user=$($REDIS_CMD GET "$CACHE_KEY" 2>/dev/null || echo "")
+          
+          if [ -n "$cached_user" ] && [ "$cached_user" != "(nil)" ] && [ "$cached_user" != "" ]; then
+            echo "found_in_cache=true" >> $GITHUB_OUTPUT
+            echo "user<<EOF" >> $GITHUB_OUTPUT
+            echo "$cached_user" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+            echo "User found in cache"
+          else
+            echo "found_in_cache=false" >> $GITHUB_OUTPUT
+            echo "User not found in cache"
+          fi
+      
+      - name: Fetch user from Slack API
+        if: steps.check-cache.outputs.found_in_cache != 'true'
+        id: fetch-slack
+        env:
+          SLACK_BOT_TOKEN: ${{ env.SLACK_BOT_TOKEN }}
+        run: |
+          USER_ID="${{ steps.set-user-id.outputs.slack_user_id }}"
+          
+          response=$(curl -s -X POST https://slack.com/api/users.info \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"user\":\"$USER_ID\"}")
+          
+          # Check if request was successful
+          ok=$(echo "$response" | jq -r '.ok')
+          
+          if [ "$ok" = "true" ]; then
+            user_data=$(echo "$response" | jq -r '.user')
+            echo "user<<EOF" >> $GITHUB_OUTPUT
+            echo "$user_data" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+            echo "user_id<<EOF" >> $GITHUB_OUTPUT
+            echo "$(echo "$user_data" | jq -r '.id')" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+            echo "fetch_success=true" >> $GITHUB_OUTPUT
+          else
+            error_msg=$(echo "$response" | jq -r '.error // "Unknown error"')
+            echo "error=User not found: $USER_ID ($error_msg)" >> $GITHUB_OUTPUT
+            echo "fetch_success=false" >> $GITHUB_OUTPUT
+            echo "Failed to fetch user: $error_msg (continuing...)"
+          fi
+      
+      - name: Cache user in Redis
+        if: steps.check-cache.outputs.found_in_cache != 'true' && steps.fetch-slack.outputs.user != ''
+        env:
+          REDIS_HOST: ${{ env.REDIS_HOST }}
+          REDIS_PORT: ${{ env.REDIS_PORT }}
+          REDIS_PASSWORD: ${{ env.REDIS_PASSWORD }}
+        run: |
+          USER_ID="${{ steps.fetch-slack.outputs.user_id }}"
+          USER_DATA="${{ steps.fetch-slack.outputs.user }}"
+          CACHE_KEY="slack-user-id-$USER_ID"
+          TTL=6000
+          
+          # Build Redis connection command
+          REDIS_CMD="redis-cli -h $REDIS_HOST -p $REDIS_PORT"
+          if [ -n "$REDIS_PASSWORD" ]; then
+            REDIS_CMD="$REDIS_CMD -a $REDIS_PASSWORD"
+          fi
+          
+          # Store in Redis with TTL
+          # Escape the JSON data properly for redis-cli
+          $REDIS_CMD SETEX "$CACHE_KEY" "$TTL" "$USER_DATA"
+          
+          echo "User cached in Redis with TTL $TTL seconds"
+      
+      - name: Format output
+        id: format-output
+        run: |
+          if [ "${{ steps.check-cache.outputs.found_in_cache }}" = "true" ]; then
+            USER_DATA="${{ steps.check-cache.outputs.user }}"
+          elif [ "${{ steps.fetch-slack.outputs.fetch_success }}" = "true" ]; then
+            USER_DATA="${{ steps.fetch-slack.outputs.user }}"
+          else
+            USER_DATA=""
+          fi
+          
+          if [ -n "$USER_DATA" ] && [ "$USER_DATA" != "" ]; then
+            # Extract only id, name, real_name fields
+            formatted=$(echo "$USER_DATA" | jq '{id: .id, name: .name, real_name: .real_name}')
+            echo "user<<EOF" >> $GITHUB_OUTPUT
+            echo "$formatted" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            USER_ID="${{ steps.set-user-id.outputs.slack_user_id }}"
+            ERROR_MSG="${{ steps.fetch-slack.outputs.error }}"
+            if [ -n "$ERROR_MSG" ]; then
+              echo "error=$ERROR_MSG" >> $GITHUB_OUTPUT
+            else
+              echo "error=user not found: $USER_ID" >> $GITHUB_OUTPUT
+            fi
+          fi
+      
+      - name: Display result
+        run: |
+          if [ -n "${{ steps.format-output.outputs.user }}" ]; then
+            echo "User data:"
+            echo "${{ steps.format-output.outputs.user }}" | jq .
+          else
+            echo "Error: ${{ steps.format-output.outputs.error }}"
+          fi
+
