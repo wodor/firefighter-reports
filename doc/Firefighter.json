@@ -1,0 +1,732 @@
+{
+  "name": "Firefighter",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -608,
+        -288
+      ],
+      "id": "a46ea1b3-0485-4b26-b693-271a1e98a235",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "query": "@platform-firefighter",
+        "limit": 50,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        -384,
+        -288
+      ],
+      "id": "0687b299-5a97-418d-ab92-94bbe2927e4c",
+      "name": "Search for messages",
+      "webhookId": "abf84339-5d23-408a-87ed-a1179bf199f2",
+      "credentials": {
+        "slackApi": {
+          "id": "hJeDUA3zptazPFsA",
+          "name": "Slack User"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "channel",
+        "operation": "replies",
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $('channel_id').item.json.channel_id }}",
+          "mode": "id"
+        },
+        "ts": "={{ $json.thread_ts ?? $json.ts }}",
+        "filters": {
+          "inclusive": false
+        }
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        512,
+        -192
+      ],
+      "id": "bb63d3be-1fc3-4a3d-a443-1ce1249a96af",
+      "name": "Get a thread of messages posted to a channel",
+      "webhookId": "1d836043-8f1a-4e17-80ba-16c8819e89e7",
+      "credentials": {
+        "slackApi": {
+          "id": "hJeDUA3zptazPFsA",
+          "name": "Slack User"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldsToSummarize": {
+          "values": [
+            {
+              "aggregation": "concatenate",
+              "field": "text",
+              "separateBy": "other",
+              "customSeparator": "\\nReply:\\n"
+            },
+            {
+              "field": "user"
+            },
+            {
+              "aggregation": "concatenate",
+              "field": "reply_users"
+            },
+            {
+              "aggregation": "min",
+              "field": "ts"
+            }
+          ]
+        },
+        "fieldsToSplitBy": "thread_ts",
+        "options": {
+          "disableDotNotation": false,
+          "outputFormat": "separateItems",
+          "skipEmptySplitFields": false
+        }
+      },
+      "type": "n8n-nodes-base.summarize",
+      "typeVersion": 1.1,
+      "position": [
+        736,
+        -192
+      ],
+      "id": "30ccb8fc-d222-49a3-922c-0cad7b8c736e",
+      "name": "Summarize"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Time: {{ $json.requestedAt }}  \nThread: {{ $json.concatenated_text }} \nPeople involved: {{ $json.concatenated_reply_users }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "Create a short summary to insert into daily fireghter report.\nSummarise this slack request for help to fireghter (person who takes care of urgent tech requests in the organisation) \n`<!subteam^S074GEYMPAQ>` - this is the mention of firefigther \n`Is it ok for <@user-id> to run the following` is a req for permission to run a script. \nShow date in human friendly way YYYY-mm-dd H:i\nFormat this as slack blocks \nTemplate:\n[\n  { \"type\": \"header\", \"text\": { \"type\": \"plain_text\", \"text\": \"<Incident Title>\", \"emoji\": true } },\n  { \"type\": \"context\", \"elements\": [ { \"type\": \"plain_text\", \"text\": \"<YYYY-MM-DD HH:mm>\", \"emoji\": true } ] },\n  { \"type\": \"section\", \"text\": { \"type\": \"mrkdwn\", \"text\": \"<Incident recap and actions>\" } },\n  { \"type\": \"divider\" },\n  { \"type\": \"context\", \"elements\": [ { \"type\": \"mrkdwn\", \"text\": \"*Participants:* <Name1, Name2>\" } ] }\n]\nConstraints:\nTitle: Short, clear summary.\nTimestamp: human readable YYYY-mm-dd.\nRecap: Concise, use bold and code via mrkdwn.\nParticipants: List by name.\nUse only these blocks: header, context, section, divider.\nValidate JSON for Slack\nreturn only json"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        1248,
+        -192
+      ],
+      "id": "88092ee4-04fa-4c2c-8df6-e5351f74f392",
+      "name": "AI Agent",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "resource": "channel",
+        "operation": "replies",
+        "channelId": {
+          "__rl": true,
+          "value": "={{ $json.channel.id ?? $json.channel }}",
+          "mode": "id"
+        },
+        "ts": "={{ $json.ts }}",
+        "filters": {
+          "inclusive": true,
+          "latest": "={{ new Date($json.ts*1000) }}",
+          "oldest": "={{ new Date($json.ts*1000) }}"
+        }
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        288,
+        -192
+      ],
+      "id": "57eae9db-87af-4d7c-a3c0-7101b65d601e",
+      "name": "GetReplies",
+      "webhookId": "abf84339-5d23-408a-87ed-a1179bf199f2",
+      "credentials": {
+        "slackApi": {
+          "id": "hJeDUA3zptazPFsA",
+          "name": "Slack User"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-sonnet-4-5-20250929",
+          "mode": "list",
+          "cachedResultName": "Claude Sonnet 4.5"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        1184,
+        32
+      ],
+      "id": "42646282-64c0-4db9-915f-6bb2dd021ba2",
+      "name": "Anthropic Chat Model",
+      "credentials": {
+        "anthropicApi": {
+          "id": "aIRl20oRjbY9Bk0j",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "description": "Use this to convert slack user id to name to put it in the report",
+        "workflowId": {
+          "__rl": true,
+          "value": "9QFCpTgahFUiakrN",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/9QFCpTgahFUiakrN",
+          "cachedResultName": "UsersLib"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "slack_user_id": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('slack_user_id', `user id like U04CDECF777`, 'string') }}"
+          },
+          "matchingColumns": [
+            "slack_user_id"
+          ],
+          "schema": [
+            {
+              "id": "slack_user_id",
+              "displayName": "slack_user_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        1248,
+        256
+      ],
+      "id": "9fea003e-51f7-483b-b8b0-1c9c42211f2c",
+      "name": "Call 'UsersLib'"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "44df2f58-36cd-4012-b5db-b347240017cb",
+              "name": "requestedAt",
+              "value": "={{ (new Date($json.min_ts*1000)).toDateTime().toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        960,
+        -192
+      ],
+      "id": "66686b84-29ad-4ba9-b244-7c53546e4dbc",
+      "name": "date"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "033e7544-118d-4598-bd9e-ef71db5ed8a3",
+              "leftValue": "={{ new Date($json.ts*1000) }}\n",
+              "rightValue": "={{ $today.minus(7, 'day') }}",
+              "operator": {
+                "type": "dateTime",
+                "operation": "after"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -160,
+        -288
+      ],
+      "id": "87b35c44-2055-4899-a64f-3ba78437b644",
+      "name": "Date limit"
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C06NH7VRZ88",
+          "mode": "id"
+        },
+        "messageType": "block",
+        "blocksUi": "={{ {blocks: $json.blocks} }}",
+        "text": "=",
+        "otherOptions": {}
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        2480,
+        -192
+      ],
+      "id": "89cd848e-8aa6-461a-9807-6eb01d556b6a",
+      "name": "Send a message",
+      "webhookId": "71d3a1ef-5ac3-4c21-abfe-20ada259d3ab",
+      "notesInFlow": true,
+      "credentials": {
+        "slackApi": {
+          "id": "hJeDUA3zptazPFsA",
+          "name": "Slack User"
+        }
+      },
+      "notes": "C02UTTBR4FQ platform internal\nC06NH7VRZ88 art test "
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"array\",\n  \"items\": {\n    \"type\": \"object\",\n    \"oneOf\": [\n      {\n        \"type\": \"object\",\n        \"properties\": {\n          \"type\": { \"const\": \"header\" },\n          \"text\": {\n            \"type\": \"object\",\n            \"properties\": {\n              \"type\": { \"const\": \"plain_text\" },\n              \"text\": { \"type\": \"string\" },\n              \"emoji\": { \"type\": \"boolean\" }\n            },\n            \"required\": [\"type\", \"text\", \"emoji\"]\n          }\n        },\n        \"required\": [\"type\", \"text\"]\n      },\n      {\n        \"type\": \"object\",\n        \"properties\": {\n          \"type\": { \"const\": \"context\" },\n          \"elements\": {\n            \"type\": \"array\",\n            \"items\": {\n              \"type\": \"object\",\n              \"properties\": {\n                \"type\": { \"enum\": [\"plain_text\", \"mrkdwn\"] },\n                \"text\": { \"type\": \"string\" },\n                \"emoji\": { \"type\": \"boolean\" }\n              },\n              \"required\": [\"type\", \"text\"]\n            }\n          }\n        },\n        \"required\": [\"type\", \"elements\"]\n      },\n      {\n        \"type\": \"object\",\n        \"properties\": {\n          \"type\": { \"const\": \"section\" },\n          \"text\": {\n            \"type\": \"object\",\n            \"properties\": {\n              \"type\": { \"const\": \"mrkdwn\" },\n              \"text\": { \"type\": \"string\" }\n            },\n            \"required\": [\"type\", \"text\"]\n          }\n        },\n        \"required\": [\"type\", \"text\"]\n      },\n      {\n        \"type\": \"object\",\n        \"properties\": {\n          \"type\": { \"const\": \"divider\" }\n        },\n        \"required\": [\"type\"]\n      }\n    ]\n  }\n}",
+        "autoFix": true
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1440,
+        32
+      ],
+      "id": "846fa4fa-a490-4263-b091-1da9834d5ed6",
+      "name": "Structured Output Parser"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-sonnet-4-5-20250929",
+          "mode": "list",
+          "cachedResultName": "Claude Sonnet 4.5"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        1440,
+        208
+      ],
+      "id": "76c2d434-f71e-44c9-b088-f1541f1d8c91",
+      "name": "Anthropic Chat Model1",
+      "credentials": {
+        "anthropicApi": {
+          "id": "aIRl20oRjbY9Bk0j",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('date').item.json.min_ts }}",
+        "contextWindowLength": 10
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        -608,
+        240
+      ],
+      "id": "a04988ab-bcc9-468c-b4b5-520ace851380",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={\n  \"blocks\": {{ \n ($json.appended_output.flatMap(item => item))\n}}\n}\n\n\n\n\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2256,
+        -192
+      ],
+      "id": "4bc5f054-545e-483b-9f47-e5a353f71e67",
+      "name": "Edit Fields",
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "fieldsToSummarize": {
+          "values": [
+            {
+              "aggregation": "append",
+              "field": "output"
+            }
+          ]
+        },
+        "fieldsToSplitBy": "day",
+        "options": {
+          "outputFormat": "separateItems"
+        }
+      },
+      "type": "n8n-nodes-base.summarize",
+      "typeVersion": 1.1,
+      "position": [
+        2032,
+        -192
+      ],
+      "id": "965ae41d-eeb8-438d-a73e-453c71f8d7c4",
+      "name": "Summarize1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "44b37069-ad05-4155-a88d-7a8e71470172",
+              "name": "day",
+              "value": "={{ new Date($json.output[1].elements[0].text).toDateTime().format('yyyy-MM-dd') }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1808,
+        -192
+      ],
+      "id": "bc51c891-f9bd-46df-ae46-71181c370809",
+      "name": "Edit Fields1",
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "url": "https://n8n.wodor.net/webhook/reactions",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -384,
+        -96
+      ],
+      "id": "f46a6004-baf3-4f13-a9ed-1fba89ea48f4",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1ea6885b-d3a9-4602-8832-7af9abc2d999",
+              "leftValue": "={{ $json.reaction }}",
+              "rightValue": "brain",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -160,
+        -96
+      ],
+      "id": "0337fef7-d795-4944-8e85-d271f3ed9f4a",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a9070e0b-05bb-416e-93c4-53e5c7839487",
+              "name": "channel_id",
+              "value": "={{ $json.channel.id ?? $json.channel }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        64,
+        -192
+      ],
+      "id": "65a06ef9-7f9a-4f08-b4c0-9e83a0cdb1df",
+      "name": "channel_id"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Search for messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search for messages": {
+      "main": [
+        [
+          {
+            "node": "Date limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get a thread of messages posted to a channel": {
+      "main": [
+        [
+          {
+            "node": "Summarize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize": {
+      "main": [
+        [
+          {
+            "node": "date",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GetReplies": {
+      "main": [
+        [
+          {
+            "node": "Get a thread of messages posted to a channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'UsersLib'": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "date": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Date limit": {
+      "main": [
+        [
+          {
+            "node": "channel_id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Structured Output Parser",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        []
+      ]
+    },
+    "Send a message": {
+      "main": [
+        []
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "Summarize1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize1": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "channel_id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "channel_id": {
+      "main": [
+        [
+          {
+            "node": "GetReplies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/London",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "ce5e5a03-e38b-46c2-9fcb-f1d6d527c42c",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "75094c6527b28a153a8ab76dcf185e47e3da30415e142d603c3681637cf56cf4"
+  },
+  "id": "1zXCTPHpgXhnfqjN",
+  "tags": []
+}
