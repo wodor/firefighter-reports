@@ -13,6 +13,7 @@ requires-python = ">=3.12"
 dependencies = [
   "langchain>=0.2.14,<0.3",
   "langchain-openai>=0.1.23,<0.2",
+  "langchain-anthropic>=0.1.22,<0.2",
   "langchain-community>=0.2.11,<0.3",
   "pydantic>=2.7,<3",
   "pydantic-settings>=2.4,<3",
