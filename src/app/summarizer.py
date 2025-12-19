@@ -1,16 +1,17 @@
 import json
 from typing import Any, Dict, List
 
+from langchain.chat_models import init_chat_model
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
 
 
 class Summarizer:
-    def __init__(self, api_key: str, model: str) -> None:
-        self.llm = ChatOpenAI(
-            api_key=api_key,
+    def __init__(self, api_key: str, model: str, model_provider: str | None = None) -> None:
+        self.llm = init_chat_model(
             model=model,
+            model_provider=model_provider,
+            api_key=api_key,
             temperature=0.2,
         )
         self.parser = StrOutputParser()

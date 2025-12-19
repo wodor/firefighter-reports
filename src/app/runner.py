@@ -52,8 +52,9 @@ def run_pipeline(settings: Settings, dry_run: bool | None = None, permalink: str
         user_cache_ttl=settings.user_cache_ttl,
     )
     summarizer = Summarizer(
-        api_key=settings.openai_api_key,
-        model=settings.openai_model,
+        api_key=settings.llm_api_key,
+        model=settings.llm_model,
+        model_provider=settings.llm_provider,
     )
     effective_dry_run = settings.dry_run if dry_run is None else dry_run
 

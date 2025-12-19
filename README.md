@@ -1,6 +1,6 @@
 # Firefighter Reports
 
-LangChain-powered Slack application that automates the generation of technical incident reports. It scans recent "firefighter" threads (urgent tech support), summarizes them using OpenAI, and posts structured reports back to Slack.
+LangChain-powered Slack application that automates the generation of technical incident reports. It scans recent "firefighter" threads (urgent tech support), summarizes them using an LLM, and posts structured reports back to Slack.
 
 ## Overview
 
@@ -9,7 +9,7 @@ The application automates the tedious task of tracking and summarizing urgent te
 ### Key Features
 - **Intelligent Search**: Scans Slack for specific mentions (e.g., `@platform-firefighter`) within a lookback window.
 - **Thread Contextualization**: Fetches entire conversation histories to ensure summaries are accurate and complete.
-- **AI-Driven Summaries**: Uses LangChain + OpenAI to generate structured Slack Block Kit reports.
+- **AI-Driven Summaries**: Uses LangChain + pluggable LLMs to generate structured Slack Block Kit reports.
 - **Smart Link Extraction**: Automatically identifies and formats JIRA, Zendesk, and Datadog links from conversation text.
 - **Efficient Caching**: Redis-backed cache for Slack user profiles and thread summaries to minimize API costs and latency.
 - **Weekly Aggregation**: Groups summaries into a single weekly thread to maintain channel cleanliness.
@@ -34,7 +34,9 @@ pip install .
 
 ### Environment Configuration
 Create a `.env` file or export the following:
-- `OPENAI_API_KEY`: OpenAI API key.
+- `LLM_API_KEY`: LLM provider API key.
+- `LLM_MODEL`: Model identifier (e.g., `gpt-4o-mini`).
+- `LLM_PROVIDER`: Optional explicit provider (`openai`, `anthropic`, etc.).
 - `SLACK_BOT_TOKEN`: Bot token with `chat:write` and `users:read` scopes.
 - `SLACK_USER_TOKEN`: User token with `search:read` and `channels:history` scopes (required for global search).
 - `SLACK_CHANNEL_ID`: Destination channel for reports.
