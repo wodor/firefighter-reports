@@ -3,7 +3,7 @@ name: Firefighter Summary
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 7 * * *"
+    - cron: "0 20 * * *"
 
 jobs:
   run:
@@ -14,8 +14,8 @@ jobs:
         ports:
           - 6379:6379
     env:
-      LLM_API_KEY: ${{ secrets.LLM_API_KEY || secrets.OPENAI_API_KEY }}
-      LLM_PROVIDER: openai
+      LLM_API_KEY: ${{ secrets.CLAUDE_FIREFIGHTER_API_KEY }}
+      LLM_PROVIDER: anthropic
       SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
       SLACK_USER_TOKEN: ${{ secrets.SLACK_USER_TOKEN }}
       SLACK_CHANNEL_ID: C0A4B9HF4MU
@@ -23,7 +23,7 @@ jobs:
       SEARCH_QUERY: "@platform-firefighter"
       SEARCH_LIMIT: "50"
       LOOKBACK_DAYS: "2"
-      LLM_MODEL: "gpt-5.2-2025-12-11"
+      LLM_MODEL: "claude-sonnet-4-5"
       USER_CACHE_TTL: "7200"
       THREAD_CACHE_TTL: "3600"
       MAX_THREADS: "10"
