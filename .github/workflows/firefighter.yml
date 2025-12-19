@@ -17,11 +17,11 @@ jobs:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
       SLACK_USER_TOKEN: ${{ secrets.SLACK_USER_TOKEN }}
-      SLACK_CHANNEL_ID: C0A4B9HF4MU
+      SLACK_CHANNEL_ID: C02UTTBR4FQ
       REDIS_URL: redis://localhost:6379/0
       SEARCH_QUERY: "@platform-firefighter"
       SEARCH_LIMIT: "50"
-      LOOKBACK_DAYS: "7"
+      LOOKBACK_DAYS: "5"
       OPENAI_MODEL: "gpt-5.2-2025-12-11"
       USER_CACHE_TTL: "7200"
       THREAD_CACHE_TTL: "3600"
